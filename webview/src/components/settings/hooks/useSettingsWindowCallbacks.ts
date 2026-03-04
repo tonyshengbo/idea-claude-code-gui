@@ -31,6 +31,7 @@ export interface SettingsWindowCallbacksDeps {
   setEditorFontConfig: (config: { fontFamily: string; fontSize: number; lineSpacing: number } | undefined) => void;
   setIdeTheme: (theme: 'light' | 'dark' | null) => void;
   setLocalStreamingEnabled: (enabled: boolean) => void;
+  setCodexSandboxMode?: (mode: 'workspace-write' | 'danger-full-access') => void;
   setLocalSendShortcut: (shortcut: 'enter' | 'cmdEnter') => void;
   setLoading: (loading: boolean) => void;
   setCodexLoading: (loading: boolean) => void;
@@ -201,6 +202,19 @@ export function useSettingsWindowCallbacks(deps: SettingsWindowCallbacksDeps) {
         }
       };
     }
+
+    // Codex sandbox mode callback
+    window.updateCodexSandboxMode = (jsonStr: string) => {
+      try {
+        const data = JSON.parse(jsonStr);
+        const mode = data?.sandboxMode;
+        if (mode === 'workspace-write' || mode === 'danger-full-access') {
+          d().setCodexSandboxMode?.(mode);
+        }
+      } catch (error) {
+        console.error('[SettingsView] Failed to parse Codex sandbox mode config:', error);
+      }
+    };
 
     // Send shortcut configuration callback
     const previousUpdateSendShortcut = window.updateSendShortcut;
@@ -378,6 +392,7 @@ export function useSettingsWindowCallbacks(deps: SettingsWindowCallbacksDeps) {
     sendToJava('get_working_directory:');
     sendToJava('get_editor_font_config:');
     sendToJava('get_streaming_enabled:');
+    sendToJava('get_codex_sandbox_mode:');
     sendToJava('get_commit_prompt:');
     sendToJava('get_sound_notification_config:');
 
@@ -399,6 +414,7 @@ export function useSettingsWindowCallbacks(deps: SettingsWindowCallbacksDeps) {
       if (!d().onStreamingEnabledChangeProp) {
         window.updateStreamingEnabled = previousUpdateStreamingEnabled;
       }
+      window.updateCodexSandboxMode = undefined;
       if (!d().onSendShortcutChangeProp) {
         window.updateSendShortcut = previousUpdateSendShortcut;
       }

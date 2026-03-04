@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import com.github.claudecodegui.ClaudeSession;
+import com.github.claudecodegui.CodemossSettingsService;
 import com.github.claudecodegui.dependency.DependencyManager;
 import com.github.claudecodegui.provider.common.BaseSDKBridge;
 import com.github.claudecodegui.provider.common.MessageCallback;
@@ -30,6 +31,9 @@ public class CodexSDKBridge extends BaseSDKBridge {
     // Codex API configuration
     private String baseUrl = null;
     private String apiKey = null;
+    private static final String SANDBOX_MODE_WORKSPACE_WRITE = "workspace-write";
+    private static final String SANDBOX_MODE_DANGER_FULL_ACCESS = "danger-full-access";
+    private static final String SANDBOX_MODE_READ_ONLY = "read-only";
 
     public CodexSDKBridge() {
         super(CodexSDKBridge.class);
@@ -315,49 +319,32 @@ public class CodexSDKBridge extends BaseSDKBridge {
                 }
 
                 // Override user's ~/.codex/config.toml sandbox and approval settings via environment variables
-                // Windows sandbox support is experimental, use danger-full-access mode
                 if (permissionMode != null && !permissionMode.isEmpty()) {
-                    // Check if running on Windows - Windows sandbox is experimental and may not work properly
-                    boolean isWindows = PlatformUtils.isWindows();
+                    String sandboxMode = resolveCodexSandboxMode(cwd);
 
                     switch (permissionMode) {
                         case "bypassPermissions":
-                            if (isWindows) {
-                                // Windows: use danger-full-access to bypass experimental sandbox
-                                env.put("CODEX_SANDBOX_MODE", "danger-full-access");
-                            } else {
-                                env.put("CODEX_SANDBOX_MODE", "workspace-write");
-                            }
+                            env.put("CODEX_SANDBOX_MODE", sandboxMode);
                             env.put("CODEX_APPROVAL_POLICY", "never");
                             break;
                         case "acceptEdits":
-                            if (isWindows) {
-                                // Windows: use danger-full-access to bypass experimental sandbox
-                                env.put("CODEX_SANDBOX_MODE", "danger-full-access");
-                            } else {
-                                env.put("CODEX_SANDBOX_MODE", "workspace-write");
-                            }
+                            env.put("CODEX_SANDBOX_MODE", sandboxMode);
                             env.put("CODEX_APPROVAL_POLICY", "auto-edit");
                             break;
                         case "plan":
-                            env.put("CODEX_SANDBOX_MODE", "read-only");
+                            env.put("CODEX_SANDBOX_MODE", SANDBOX_MODE_READ_ONLY);
                             env.put("CODEX_APPROVAL_POLICY", "untrusted");
                             break;
                         default:
-                            // Default mode: workspace-write with confirmation
-                            if (isWindows) {
-                                // Windows: use danger-full-access to bypass experimental sandbox
-                                env.put("CODEX_SANDBOX_MODE", "danger-full-access");
-                            } else {
-                                env.put("CODEX_SANDBOX_MODE", "workspace-write");
-                            }
+                            // Default mode: use configured sandbox mode with confirmation
+                            env.put("CODEX_SANDBOX_MODE", sandboxMode);
                             env.put("CODEX_APPROVAL_POLICY", "untrusted");
                             break;
                     }
                     LOG.info("[Codex] Permission env override: SANDBOX_MODE=" +
                              env.get("CODEX_SANDBOX_MODE") + ", APPROVAL_POLICY=" +
                              env.get("CODEX_APPROVAL_POLICY") + " (from permissionMode=" + permissionMode +
-                             ", isWindows=" + isWindows + ")");
+                             ")");
                 }
 
                 pb.redirectErrorStream(true);
@@ -675,5 +662,23 @@ public class CodexSDKBridge extends BaseSDKBridge {
             }
         }
         return sb.toString();
+    }
+    /**
+     * Resolve effective Codex sandbox mode from user settings.
+     * Falls back to platform defaults when settings are unavailable or invalid.
+     */
+    private String resolveCodexSandboxMode(String cwd) {
+        String defaultMode = SANDBOX_MODE_DANGER_FULL_ACCESS;
+
+        try {
+            CodemossSettingsService settingsService = new CodemossSettingsService();
+            String configured = settingsService.getCodexSandboxMode(cwd);
+            if (SANDBOX_MODE_WORKSPACE_WRITE.equals(configured) || SANDBOX_MODE_DANGER_FULL_ACCESS.equals(configured)) {
+                return configured;
+            }
+        } catch (Exception e) {
+            LOG.warn("[Codex] Failed to read Codex sandbox mode config: " + e.getMessage());
+        }
+        return defaultMode;
     }
 }

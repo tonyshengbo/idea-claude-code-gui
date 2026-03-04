@@ -246,7 +246,17 @@
     "mcp": "MCP Servers",
     "mcpDesc": "Configure and manage Model Context Protocol servers",
     "permissions": "Permissions",
-    "permissionsDesc": "Manage Claude Code's file access and operation permissions",
+    "permissionsDesc": "Manage Claude Code and Codex permission and sandbox policies",
+    "permissionsPanel": {
+      "codexSandboxTitle": "Codex Sandbox Mode",
+      "codexSandboxDesc": "Control system access boundaries when Codex executes commands. Keep workspace-write by default and only enable full access when required.",
+      "workspaceWriteTitle": "workspace-write (Recommended)",
+      "workspaceWriteDesc": "Read/write is limited to the workspace. System-level operations are restricted for safety.",
+      "fullAccessTitle": "danger-full-access",
+      "fullAccessDesc": "Allows higher system access, suitable for commands like adb or docker that require extra permissions.",
+      "hint": "This setting only affects Codex process sandboxing and does not change Claude Code permission behavior.",
+      "claudeTip": "Claude Code approval mode is configured from the chat input mode selector."
+    },
     "commit": {
       "title": "Commit AI",
       "description": "Configure AI-generated Git commit message behavior",

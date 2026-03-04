@@ -221,6 +221,11 @@ interface Window {
   updateStreamingEnabled?: (json: string) => void;
 
   /**
+   * Update Codex sandbox mode setting
+   */
+  updateCodexSandboxMode?: (json: string) => void;
+
+  /**
    * Update send shortcut setting
    */
   updateSendShortcut?: (json: string) => void;

@@ -27,6 +27,8 @@ public class CodemossSettingsService {
 
     private static final Logger LOG = Logger.getInstance(CodemossSettingsService.class);
     private static final int CONFIG_VERSION = 2;
+    private static final String CODEX_SANDBOX_MODE_WORKSPACE_WRITE = "workspace-write";
+    private static final String CODEX_SANDBOX_MODE_DANGER_FULL_ACCESS = "danger-full-access";
 
     private final Gson gson;
 
@@ -451,6 +453,74 @@ public class CodemossSettingsService {
 
         writeConfig(config);
         LOG.info("[CodemossSettings] Set auto open file enabled to " + enabled + " for project: " + projectPath);
+    }
+
+    // ==================== Codex Sandbox Mode Config Management ====================
+
+    /**
+     * Get Codex sandbox mode configuration.
+     * @param projectPath project path
+     * @return sandbox mode (workspace-write or danger-full-access)
+     */
+    public String getCodexSandboxMode(String projectPath) throws IOException {
+        JsonObject config = readConfig();
+        String defaultMode = getDefaultCodexSandboxMode();
+
+        if (!config.has("codexSandboxMode")) {
+            return defaultMode;
+        }
+
+        JsonObject sandboxConfig = config.getAsJsonObject("codexSandboxMode");
+
+        if (projectPath != null && sandboxConfig.has(projectPath)) {
+            String mode = sandboxConfig.get(projectPath).getAsString();
+            return isValidCodexSandboxMode(mode) ? mode : defaultMode;
+        }
+
+        if (sandboxConfig.has("default")) {
+            String mode = sandboxConfig.get("default").getAsString();
+            return isValidCodexSandboxMode(mode) ? mode : defaultMode;
+        }
+
+        return defaultMode;
+    }
+
+    /**
+     * Set Codex sandbox mode configuration.
+     * @param projectPath project path
+     * @param sandboxMode sandbox mode (workspace-write or danger-full-access)
+     */
+    public void setCodexSandboxMode(String projectPath, String sandboxMode) throws IOException {
+        if (!isValidCodexSandboxMode(sandboxMode)) {
+            throw new IllegalArgumentException("Invalid Codex sandbox mode: " + sandboxMode);
+        }
+
+        JsonObject config = readConfig();
+
+        JsonObject sandboxConfig;
+        if (config.has("codexSandboxMode")) {
+            sandboxConfig = config.getAsJsonObject("codexSandboxMode");
+        } else {
+            sandboxConfig = new JsonObject();
+            config.add("codexSandboxMode", sandboxConfig);
+        }
+
+        if (projectPath != null) {
+            sandboxConfig.addProperty(projectPath, sandboxMode);
+        }
+        sandboxConfig.addProperty("default", sandboxMode);
+
+        writeConfig(config);
+        LOG.info("[CodemossSettings] Set Codex sandbox mode to " + sandboxMode + " for project: " + projectPath);
+    }
+
+    private boolean isValidCodexSandboxMode(String mode) {
+        return CODEX_SANDBOX_MODE_WORKSPACE_WRITE.equals(mode)
+                || CODEX_SANDBOX_MODE_DANGER_FULL_ACCESS.equals(mode);
+    }
+
+    private String getDefaultCodexSandboxMode() {
+        return CODEX_SANDBOX_MODE_DANGER_FULL_ACCESS;
     }
 
     // ==================== Provider Management ====================

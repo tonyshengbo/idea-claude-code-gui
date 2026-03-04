@@ -46,6 +46,23 @@ const logWarn = (tag, ...args) => debugLog(2, tag, ...args);
 const logInfo = (tag, ...args) => debugLog(3, tag, ...args);
 const logDebug = (tag, ...args) => debugLog(4, tag, ...args);
 const logVerbose = (tag, ...args) => debugLog(5, tag, ...args);
+const VALID_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
+
+/**
+ * 从环境变量读取沙箱模式覆盖值。
+ * 返回空字符串表示不覆盖。
+ */
+function resolveSandboxModeOverride() {
+  const value = (process.env.CODEX_SANDBOX_MODE || '').trim();
+  if (!value) {
+    return '';
+  }
+  if (!VALID_SANDBOX_MODES.has(value)) {
+    logWarn('PERM_DEBUG', `Ignore invalid CODEX_SANDBOX_MODE: ${value}`);
+    return '';
+  }
+  return value;
+}
 
 const isReconnectNotice = (message) =>
   typeof message === 'string' && /Reconnecting\.\.\./i.test(message);
@@ -300,6 +317,13 @@ export async function sendMessage(
     );
 
     console.log('[PERM_DEBUG] Codex permission config:', permissionConfig);
+
+    // 允许 Java 侧通过环境变量强制覆盖 Node 层的沙箱映射，避免二次映射回 workspace-write。
+    const sandboxOverride = resolveSandboxModeOverride();
+    if (sandboxOverride) {
+      permissionConfig.sandbox = sandboxOverride;
+      console.log('[PERM_DEBUG] Sandbox override from env CODEX_SANDBOX_MODE:', sandboxOverride);
+    }
 
     // ============================================================
     // 3. Build Thread Options

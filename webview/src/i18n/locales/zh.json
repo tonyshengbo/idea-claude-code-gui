@@ -246,7 +246,17 @@
     "mcp": "MCP 服务器",
     "mcpDesc": "配置和管理 Model Context Protocol 服务器",
     "permissions": "权限配置",
-    "permissionsDesc": "管理 Claude Code 的文件访问和操作权限",
+    "permissionsDesc": "管理 Claude Code 与 Codex 的权限和沙箱策略",
+    "permissionsPanel": {
+      "codexSandboxTitle": "Codex 沙箱模式",
+      "codexSandboxDesc": "控制 Codex 执行命令时的系统权限边界。推荐默认使用 workspace-write，仅在确有需要时开启 full access。",
+      "workspaceWriteTitle": "workspace-write（推荐）",
+      "workspaceWriteDesc": "只允许在工作区内读写，系统级操作会被限制，更安全。",
+      "fullAccessTitle": "danger-full-access",
+      "fullAccessDesc": "允许更高系统权限，可执行如 adb、docker 等需要额外权限的命令。",
+      "hint": "该设置仅影响 Codex 进程沙箱，不会改变 Claude Code 的权限策略。",
+      "claudeTip": "Claude Code 的交互审批模式请在聊天输入框的模式选择器中设置。"
+    },
     "commit": {
       "title": "Commit AI",
       "description": "配置 AI 生成 Git Commit 消息的行为",
