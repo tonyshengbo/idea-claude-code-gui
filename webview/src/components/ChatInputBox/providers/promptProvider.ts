@@ -1,5 +1,5 @@
 import type { DropdownItemData } from '../types';
-import type { PromptConfig } from '../../../types/prompt';
+import type { PromptConfig, PromptScope, GetPromptsMessage } from '../../../types/prompt';
 import { sendBridgeEvent } from '../../../utils/bridge';
 import i18n from '../../../i18n/config';
 import { debugError, debugLog, debugWarn } from '../../../utils/debug.js';
@@ -12,6 +12,7 @@ export interface PromptItem {
   id: string;
   name: string;
   content: string;
+  scope?: PromptScope; // Add scope to track source
 }
 
 // ============================================================================
@@ -20,8 +21,10 @@ export interface PromptItem {
 
 type LoadingState = 'idle' | 'loading' | 'success' | 'failed';
 
-let cachedPrompts: PromptItem[] = [];
-let loadingState: LoadingState = 'idle';
+let cachedGlobalPrompts: PromptItem[] = [];
+let cachedProjectPrompts: PromptItem[] = [];
+let globalLoadingState: LoadingState = 'idle';
+let projectLoadingState: LoadingState = 'idle';
 let lastRefreshTime = 0;
 let callbackRegistered = false;
 let retryCount = 0;
@@ -37,8 +40,10 @@ const MAX_PENDING_WAITERS = 10; // Maximum concurrent waiters
 // ============================================================================
 
 export function resetPromptsState() {
-  cachedPrompts = [];
-  loadingState = 'idle';
+  cachedGlobalPrompts = [];
+  cachedProjectPrompts = [];
+  globalLoadingState = 'idle';
+  projectLoadingState = 'idle';
   lastRefreshTime = 0;
   retryCount = 0;
   pendingWaiters.forEach(w => w.reject(new Error('Prompts state reset')));
@@ -48,10 +53,10 @@ export function resetPromptsState() {
 
 export function setupPromptsCallback() {
   if (typeof window === 'undefined') return;
-  if (callbackRegistered && window.updatePrompts) return;
+  if (callbackRegistered && window.updateGlobalPrompts && window.updateProjectPrompts) return;
 
-  const handler = (json: string) => {
-    debugLog('[PromptProvider] Received data from backend, length=' + json.length);
+  const globalHandler = (json: string) => {
+    debugLog('[PromptProvider] Received global prompts from backend, length=' + json.length);
 
     try {
       const parsed = JSON.parse(json);
@@ -62,39 +67,81 @@ export function setupPromptsCallback() {
           id: prompt.id,
           name: prompt.name,
           content: prompt.content,
+          scope: 'global' as PromptScope,
         }));
       }
 
-      cachedPrompts = prompts;
-      loadingState = 'success';
+      cachedGlobalPrompts = prompts;
+      globalLoadingState = 'success';
       retryCount = 0; // Reset retry count on success
       pendingWaiters.forEach(w => w.resolve());
       pendingWaiters = [];
-      debugLog('[PromptProvider] Successfully loaded ' + prompts.length + ' prompts');
+      debugLog('[PromptProvider] Successfully loaded ' + prompts.length + ' global prompts');
     } catch (error) {
-      loadingState = 'failed';
+      globalLoadingState = 'failed';
       pendingWaiters.forEach(w => w.reject(error));
       pendingWaiters = [];
-      debugError('[PromptProvider] Failed to parse prompts:', error);
+      debugError('[PromptProvider] Failed to parse global prompts:', error);
     }
   };
 
-  // Save original callback
-  const originalHandler = window.updatePrompts;
+  const projectHandler = (json: string) => {
+    debugLog('[PromptProvider] Received project prompts from backend, length=' + json.length);
 
-  window.updatePrompts = (json: string) => {
+    try {
+      const parsed = JSON.parse(json);
+      let prompts: PromptItem[] = [];
+
+      if (Array.isArray(parsed)) {
+        prompts = parsed.map((prompt: PromptConfig) => ({
+          id: prompt.id,
+          name: prompt.name,
+          content: prompt.content,
+          scope: 'project' as PromptScope,
+        }));
+      }
+
+      cachedProjectPrompts = prompts;
+      projectLoadingState = 'success';
+      retryCount = 0; // Reset retry count on success
+      pendingWaiters.forEach(w => w.resolve());
+      pendingWaiters = [];
+      debugLog('[PromptProvider] Successfully loaded ' + prompts.length + ' project prompts');
+    } catch (error) {
+      projectLoadingState = 'failed';
+      pendingWaiters.forEach(w => w.reject(error));
+      pendingWaiters = [];
+      debugError('[PromptProvider] Failed to parse project prompts:', error);
+    }
+  };
+
+  // Save original callbacks
+  const originalGlobalHandler = window.updateGlobalPrompts;
+  const originalProjectHandler = window.updateProjectPrompts;
+
+  window.updateGlobalPrompts = (json: string) => {
     // Call our handler
-    handler(json);
+    globalHandler(json);
     // Also call original handler (if exists)
-    originalHandler?.(json);
+    originalGlobalHandler?.(json);
+  };
+
+  window.updateProjectPrompts = (json: string) => {
+    // Call our handler
+    projectHandler(json);
+    // Also call original handler (if exists)
+    originalProjectHandler?.(json);
   };
 
   callbackRegistered = true;
-  debugLog('[PromptProvider] Callback registered');
+  debugLog('[PromptProvider] Callbacks registered');
 }
 
 function waitForPrompts(signal: AbortSignal, timeoutMs: number): Promise<void> {
-  if (loadingState === 'success') return Promise.resolve();
+  // Consider success if either scope has loaded successfully
+  if (globalLoadingState === 'success' || projectLoadingState === 'success') {
+    return Promise.resolve();
+  }
 
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) {
@@ -154,19 +201,28 @@ function requestRefresh(): boolean {
 
   if (retryCount >= MAX_RETRY_COUNT) {
     debugWarn('[PromptProvider] Max retry count reached, giving up');
-    loadingState = 'failed';
+    globalLoadingState = 'failed';
+    projectLoadingState = 'failed';
     return false;
   }
 
   const attempt = retryCount + 1;
-  const sent = sendBridgeEvent('get_prompts');
-  if (!sent) {
+
+  // Request both global and project prompts
+  const globalMessage: GetPromptsMessage = { scope: 'global' };
+  const projectMessage: GetPromptsMessage = { scope: 'project' };
+
+  const globalSent = sendBridgeEvent('get_prompts', JSON.stringify(globalMessage));
+  const projectSent = sendBridgeEvent('get_prompts', JSON.stringify(projectMessage));
+
+  if (!globalSent && !projectSent) {
     debugLog('[PromptProvider] Bridge not available yet, refresh not sent');
     return false;
   }
 
   lastRefreshTime = now;
-  loadingState = 'loading';
+  globalLoadingState = 'loading';
+  projectLoadingState = 'loading';
   retryCount = attempt;
 
   debugLog('[PromptProvider] Requesting refresh from backend (attempt ' + retryCount + '/' + MAX_RETRY_COUNT + ')');
@@ -205,9 +261,12 @@ export async function promptProvider(
     content: '',
   };
 
+  // Combine prompts from both scopes (project prompts first)
+  const allPrompts = [...cachedProjectPrompts, ...cachedGlobalPrompts];
+
   // If cached data exists, use cache directly
-  if (loadingState === 'success' && cachedPrompts.length > 0) {
-    const filtered = filterPrompts(cachedPrompts, query);
+  if ((globalLoadingState === 'success' || projectLoadingState === 'success') && allPrompts.length > 0) {
+    const filtered = filterPrompts(allPrompts, query);
     if (filtered.length === 0) {
       return [{
         id: EMPTY_STATE_ID,
@@ -219,21 +278,25 @@ export async function promptProvider(
   }
 
   // Attempt to refresh data (non-blocking)
-  if (loadingState === 'idle' || loadingState === 'failed') {
+  if ((globalLoadingState === 'idle' || globalLoadingState === 'failed') ||
+      (projectLoadingState === 'idle' || projectLoadingState === 'failed')) {
     requestRefresh();
-  } else if (loadingState === 'loading' && now - lastRefreshTime > LOADING_TIMEOUT) {
+  } else if ((globalLoadingState === 'loading' || projectLoadingState === 'loading') &&
+             now - lastRefreshTime > LOADING_TIMEOUT) {
     debugWarn('[PromptProvider] Loading timeout');
-    loadingState = 'failed';
+    globalLoadingState = 'failed';
+    projectLoadingState = 'failed';
   }
 
   // Wait only briefly (500ms), then return currently available data
-  if (loadingState === 'loading') {
+  if (globalLoadingState === 'loading' || projectLoadingState === 'loading') {
     await waitForPrompts(signal, 500).catch(() => {});
   }
 
   // Return results regardless of loading state
-  if (loadingState === 'success' && cachedPrompts.length > 0) {
-    const filtered = filterPrompts(cachedPrompts, query);
+  const allPromptsAfterWait = [...cachedProjectPrompts, ...cachedGlobalPrompts];
+  if ((globalLoadingState === 'success' || projectLoadingState === 'success') && allPromptsAfterWait.length > 0) {
+    const filtered = filterPrompts(allPromptsAfterWait, query);
     if (filtered.length === 0) {
       return [{
         id: EMPTY_STATE_ID,
@@ -277,9 +340,13 @@ export function promptToDropdownItem(prompt: PromptItem): DropdownItemData {
     };
   }
 
+  // Add scope label to prompt name
+  const scopeLabel = prompt.scope === 'project' ? '[项目]' : '[全局]';
+  const labelWithScope = `${prompt.name} ${scopeLabel}`;
+
   return {
     id: prompt.id,
-    label: prompt.name,
+    label: labelWithScope,
     description: prompt.content ?
       (prompt.content.length > 60 ? prompt.content.substring(0, 60) + '...' : prompt.content) :
       undefined,
