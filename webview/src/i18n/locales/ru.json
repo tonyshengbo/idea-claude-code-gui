@@ -1202,7 +1202,7 @@
     },
     "acceptEdits": {
       "label": "Авто-правки",
-      "tooltip": "Codex approval_policy=auto-edit — автоматически применяет патчи файлов, но запрашивает перед командами.",
+      "tooltip": "Codex approval_policy=on-request – asks for approval when needed",
       "description": "Автоматическое создание и редактирование файлов через apply_patch с сохранением одобрения команд."
     },
     "bypassPermissions": {

@@ -520,7 +520,7 @@ public class CodemossSettingsService {
     }
 
     private String getDefaultCodexSandboxMode() {
-        return CODEX_SANDBOX_MODE_DANGER_FULL_ACCESS;
+        return CODEX_SANDBOX_MODE_WORKSPACE_WRITE;
     }
 
     // ==================== Provider Management ====================

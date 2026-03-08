@@ -34,7 +34,7 @@ import {
   getContentBlocks as getContentBlocksUtil,
   mergeConsecutiveAssistantMessages,
 } from './utils/messageUtils';
-import { CLAUDE_MODELS, CODEX_MODELS } from './components/ChatInputBox/types';
+import { CLAUDE_MODELS, CODEX_MODELS, isValidPermissionMode } from './components/ChatInputBox/types';
 import type { Attachment, ChatInputBoxHandle, PermissionMode, ReasoningEffort, SelectedAgent } from './components/ChatInputBox/types';
 import { StatusPanel, StatusPanelErrorBoundary } from './components/StatusPanel';
 import { ToastContainer, type ToastMessage } from './components/Toast';
@@ -221,6 +221,7 @@ const App = () => {
   const [selectedClaudeModel, setSelectedClaudeModel] = useState(CLAUDE_MODELS[0].id);
   const [selectedCodexModel, setSelectedCodexModel] = useState(CODEX_MODELS[0].id);
   const [claudePermissionMode, setClaudePermissionMode] = useState<PermissionMode>('bypassPermissions');
+  const [codexPermissionMode, setCodexPermissionMode] = useState<PermissionMode>('default');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('bypassPermissions');
   // Codex reasoning effort (thinking depth)
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
@@ -459,6 +460,8 @@ const App = () => {
       let restoredProvider = 'claude';
       let restoredClaudeModel = CLAUDE_MODELS[0].id;
       let restoredCodexModel = CODEX_MODELS[0].id;
+      let restoredClaudePermissionMode: PermissionMode = 'bypassPermissions';
+      let restoredCodexPermissionMode: PermissionMode = 'default';
       let initialPermissionMode: PermissionMode = 'bypassPermissions';
 
       if (saved) {
@@ -468,9 +471,15 @@ const App = () => {
         if (['claude', 'codex'].includes(state.provider)) {
           restoredProvider = state.provider;
           setCurrentProvider(state.provider);
-          if (state.provider === 'codex') {
-            initialPermissionMode = 'bypassPermissions';
-          }
+        }
+
+        if (isValidPermissionMode(state.claudePermissionMode)) {
+          restoredClaudePermissionMode = state.claudePermissionMode;
+        }
+        if (isValidPermissionMode(state.codexPermissionMode)) {
+          restoredCodexPermissionMode = state.codexPermissionMode === 'plan'
+            ? 'default'
+            : state.codexPermissionMode;
         }
 
         // Validate and restore Claude model (check both built-in and custom models)
@@ -494,6 +503,11 @@ const App = () => {
         }
       }
 
+      initialPermissionMode = restoredProvider === 'codex'
+        ? restoredCodexPermissionMode
+        : restoredClaudePermissionMode;
+      setClaudePermissionMode(restoredClaudePermissionMode);
+      setCodexPermissionMode(restoredCodexPermissionMode);
       setPermissionMode(initialPermissionMode);
 
       // Sync model state to backend on initialization to ensure frontend-backend consistency
@@ -530,11 +544,13 @@ const App = () => {
         provider: currentProvider,
         claudeModel: selectedClaudeModel,
         codexModel: selectedCodexModel,
+        claudePermissionMode,
+        codexPermissionMode,
       }));
     } catch {
       // Failed to save model selection state
     }
-  }, [currentProvider, selectedClaudeModel, selectedCodexModel]);
+  }, [currentProvider, selectedClaudeModel, selectedCodexModel, claudePermissionMode, codexPermissionMode]);
 
   // Load selected agent
   useEffect(() => {
@@ -629,6 +645,7 @@ const App = () => {
     setUsageMaxTokens,
     setPermissionMode,
     setClaudePermissionMode,
+    setCodexPermissionMode,
     setSelectedClaudeModel,
     setSelectedCodexModel,
     setProviderConfigVersion,
@@ -775,8 +792,8 @@ const App = () => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     // Keep a single source of truth for each request:
     // payload.permissionMode > sessionMode > default (backend fallback).
-    const effectivePermissionMode: PermissionMode = currentProvider === 'codex'
-      ? 'bypassPermissions'
+    const effectivePermissionMode: PermissionMode = currentProvider === 'codex' && requestedPermissionMode === 'plan'
+      ? 'default'
       : requestedPermissionMode;
     console.debug('[ModeSync][Frontend] send request mode', {
       provider: currentProvider,
@@ -964,8 +981,10 @@ const App = () => {
    */
   const handleModeSelect = useCallback((mode: PermissionMode) => {
     if (currentProviderRef.current === 'codex') {
-      setPermissionMode('bypassPermissions');
-      sendBridgeEvent('set_mode', 'bypassPermissions');
+      const codexMode: PermissionMode = mode === 'plan' ? 'default' : mode;
+      setPermissionMode(codexMode);
+      setCodexPermissionMode(codexMode);
+      sendBridgeEvent('set_mode', codexMode);
       return;
     }
     setPermissionMode(mode);
@@ -995,13 +1014,15 @@ const App = () => {
 
     setCurrentProvider(providerId);
     sendBridgeEvent('set_provider', providerId);
-    const modeToSet = providerId === 'codex' ? 'bypassPermissions' : claudePermissionMode;
+    const modeToSet: PermissionMode = providerId === 'codex'
+      ? (codexPermissionMode === 'plan' ? 'default' : codexPermissionMode)
+      : claudePermissionMode;
     setPermissionMode(modeToSet);
     sendBridgeEvent('set_mode', modeToSet);
 
     const newModel = providerId === 'codex' ? selectedCodexModel : selectedClaudeModel;
     sendBridgeEvent('set_model', newModel);
-  }, [claudePermissionMode, selectedCodexModel, selectedClaudeModel]);
+  }, [claudePermissionMode, codexPermissionMode, selectedCodexModel, selectedClaudeModel]);
 
   /**
    * Handle reasoning effort selection (Codex only)

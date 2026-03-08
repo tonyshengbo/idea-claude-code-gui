@@ -148,11 +148,11 @@ public class EnvironmentConfigurator {
         }
         String permissionDir = getPermissionDirectory();
         if (permissionDir != null) {
-            env.putIfAbsent(CLAUDE_PERMISSION_ENV, permissionDir);
+            env.put(CLAUDE_PERMISSION_ENV, permissionDir);
         }
         String sid = getSessionId();
         if (sid != null) {
-            env.putIfAbsent(CLAUDE_SESSION_ID_ENV, sid);
+            env.put(CLAUDE_SESSION_ID_ENV, sid);
         }
     }
 
@@ -170,6 +170,20 @@ public class EnvironmentConfigurator {
             }
         }
         return this.sessionId;
+    }
+
+    /**
+     * 显式设置会话 ID，用于在多 Bridge 场景下对齐权限请求路由。
+     */
+    public void setSessionId(String sessionId) {
+        if (sessionId == null) {
+            return;
+        }
+        String normalized = sessionId.trim();
+        if (normalized.isEmpty()) {
+            return;
+        }
+        this.sessionId = normalized;
     }
 
     /**

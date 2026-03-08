@@ -357,7 +357,7 @@ public class ClaudeSession {
     /**
      * Send a message with attachments, agent prompt, file tags, and a requested permission mode.
      * The effective mode is resolved with priority:
-     * requestedPermissionMode > sessionMode > default, with codex forced to bypassPermissions.
+     * 优先级：requestedPermissionMode > sessionMode > default。
      */
     public CompletableFuture<Void> send(
             String input,
@@ -1016,15 +1016,19 @@ public class ClaudeSession {
     }
 
     private String resolveEffectivePermissionMode(String provider, String requestedMode, String sessionMode) {
-        // Codex execution is always bypassPermissions to match provider constraints.
-        if ("codex".equals(provider)) {
-            return "bypassPermissions";
+        String resolvedMode = requestedMode;
+        if (resolvedMode == null) {
+            resolvedMode = normalizeRequestedPermissionMode(sessionMode);
         }
-        if (requestedMode != null) {
-            return requestedMode;
+        if (resolvedMode == null) {
+            resolvedMode = "default";
         }
-        String normalizedSession = normalizeRequestedPermissionMode(sessionMode);
-        return normalizedSession != null ? normalizedSession : "default";
+
+        // Codex 暂不支持计划模式执行，统一回退到建议模式。
+        if ("codex".equals(provider) && "plan".equals(resolvedMode)) {
+            return "default";
+        }
+        return resolvedMode;
     }
 
     /**

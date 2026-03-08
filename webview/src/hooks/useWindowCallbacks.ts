@@ -50,6 +50,7 @@ export interface UseWindowCallbacksOptions {
   setUsageMaxTokens: React.Dispatch<React.SetStateAction<number | undefined>>;
   setPermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
   setClaudePermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
+  setCodexPermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
   setSelectedClaudeModel: React.Dispatch<React.SetStateAction<string>>;
   setSelectedCodexModel: React.Dispatch<React.SetStateAction<string>>;
   setProviderConfigVersion: React.Dispatch<React.SetStateAction<number>>;
@@ -127,6 +128,7 @@ export function useWindowCallbacks(options: UseWindowCallbacksOptions): void {
     setUsageMaxTokens,
     setPermissionMode,
     setClaudePermissionMode,
+    setCodexPermissionMode,
     setSelectedClaudeModel,
     setSelectedCodexModel,
     setProviderConfigVersion,
@@ -865,13 +867,16 @@ export function useWindowCallbacks(options: UseWindowCallbacksOptions): void {
 
     const updateMode = (mode?: PermissionMode, providerOverride?: string) => {
       const activeProvider = providerOverride || currentProviderRef.current;
-      if (activeProvider === 'codex') {
-        setPermissionMode((prev) => (prev === 'bypassPermissions' ? prev : 'bypassPermissions'));
-        return;
-      }
       if (isValidPermissionMode(mode)) {
-        setPermissionMode((prev) => (prev === mode ? prev : mode));
-        setClaudePermissionMode((prev) => (prev === mode ? prev : mode));
+        const nextMode: PermissionMode = activeProvider === 'codex' && mode === 'plan'
+          ? 'default'
+          : mode;
+        setPermissionMode((prev) => (prev === nextMode ? prev : nextMode));
+        if (activeProvider === 'codex') {
+          setCodexPermissionMode((prev) => (prev === nextMode ? prev : nextMode));
+        } else {
+          setClaudePermissionMode((prev) => (prev === nextMode ? prev : nextMode));
+        }
       }
     };
 

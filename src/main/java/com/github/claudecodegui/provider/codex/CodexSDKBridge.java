@@ -34,6 +34,14 @@ public class CodexSDKBridge extends BaseSDKBridge {
     private static final String SANDBOX_MODE_WORKSPACE_WRITE = "workspace-write";
     private static final String SANDBOX_MODE_DANGER_FULL_ACCESS = "danger-full-access";
     private static final String SANDBOX_MODE_READ_ONLY = "read-only";
+    private static final String APPROVAL_POLICY_NEVER = "never";
+    private static final String APPROVAL_POLICY_ON_REQUEST = "on-request";
+    private static final String APPROVAL_POLICY_UNTRUSTED = "untrusted";
+    private static final String ENV_CODEX_SANDBOX_MODE = "CODEX_SANDBOX_MODE";
+    private static final String ENV_CODEX_APPROVAL_POLICY = "CODEX_APPROVAL_POLICY";
+    private static final String ENV_CODEX_SANDBOX = "CODEX_SANDBOX";
+    private static final String ENV_CODEX_CI = "CODEX_CI";
+    private static final String ENV_CODEX_SANDBOX_NETWORK_DISABLED = "CODEX_SANDBOX_NETWORK_DISABLED";
 
     public CodexSDKBridge() {
         super(CodexSDKBridge.class);
@@ -313,45 +321,92 @@ public class CodexSDKBridge extends BaseSDKBridge {
                 envConfigurator.configureTempDir(env, processTempDir);
                 env.put("CODEX_USE_STDIN", "true");
 
+                // 清理继承环境中的权限相关变量，避免上层进程残留值污染本次请求。
+                List<String> inheritedPermissionEnvKeys = List.of(
+                        ENV_CODEX_APPROVAL_POLICY,
+                        ENV_CODEX_SANDBOX_MODE,
+                        ENV_CODEX_SANDBOX,
+                        ENV_CODEX_CI,
+                        ENV_CODEX_SANDBOX_NETWORK_DISABLED
+                );
+                StringBuilder inheritedPermissionEnvLog = new StringBuilder();
+                for (String key : inheritedPermissionEnvKeys) {
+                    String value = env.get(key);
+                    if (value != null && !value.isEmpty()) {
+                        if (inheritedPermissionEnvLog.length() > 0) {
+                            inheritedPermissionEnvLog.append(", ");
+                        }
+                        inheritedPermissionEnvLog.append(key).append("=").append(value);
+                    }
+                }
+                if (inheritedPermissionEnvLog.length() > 0) {
+                    LOG.warn("[Codex] Detected inherited permission env before override: "
+                            + inheritedPermissionEnvLog);
+                }
+                for (String key : inheritedPermissionEnvKeys) {
+                    env.remove(key);
+                }
+
                 // Set model via environment variable if specified
                 if (model != null && !model.isEmpty()) {
                     env.put("CODEX_MODEL", model);
                 }
 
                 // Override user's ~/.codex/config.toml sandbox and approval settings via environment variables
-                if (permissionMode != null && !permissionMode.isEmpty()) {
-                    String sandboxMode = resolveCodexSandboxMode(cwd);
+                String normalizedPermissionMode = (permissionMode != null && !permissionMode.trim().isEmpty())
+                        ? permissionMode.trim()
+                        : "default";
+                String sandboxMode = resolveCodexSandboxMode(cwd);
+                String effectiveSandboxMode;
+                String effectiveApprovalPolicy;
 
-                    switch (permissionMode) {
-                        case "bypassPermissions":
-                            env.put("CODEX_SANDBOX_MODE", sandboxMode);
-                            env.put("CODEX_APPROVAL_POLICY", "never");
-                            break;
-                        case "acceptEdits":
-                            env.put("CODEX_SANDBOX_MODE", sandboxMode);
-                            env.put("CODEX_APPROVAL_POLICY", "auto-edit");
-                            break;
-                        case "plan":
-                            env.put("CODEX_SANDBOX_MODE", SANDBOX_MODE_READ_ONLY);
-                            env.put("CODEX_APPROVAL_POLICY", "untrusted");
-                            break;
-                        default:
-                            // Default mode: use configured sandbox mode with confirmation
-                            env.put("CODEX_SANDBOX_MODE", sandboxMode);
-                            env.put("CODEX_APPROVAL_POLICY", "untrusted");
-                            break;
-                    }
-                    LOG.info("[Codex] Permission env override: SANDBOX_MODE=" +
-                             env.get("CODEX_SANDBOX_MODE") + ", APPROVAL_POLICY=" +
-                             env.get("CODEX_APPROVAL_POLICY") + " (from permissionMode=" + permissionMode +
-                             ")");
+                switch (normalizedPermissionMode) {
+                    case "bypassPermissions":
+                        effectiveSandboxMode = sandboxMode;
+                        effectiveApprovalPolicy = APPROVAL_POLICY_NEVER;
+                        break;
+                    case "acceptEdits":
+                        effectiveSandboxMode = sandboxMode;
+                        effectiveApprovalPolicy = APPROVAL_POLICY_ON_REQUEST;
+                        break;
+                    case "plan":
+                        effectiveSandboxMode = sandboxMode;
+                        effectiveApprovalPolicy = APPROVAL_POLICY_UNTRUSTED;
+                        break;
+                    default:
+                        // Default mode: use workspace-write with confirmation (hardcoded for validation)
+                        effectiveSandboxMode = sandboxMode;
+                        effectiveApprovalPolicy = APPROVAL_POLICY_UNTRUSTED;
+                        break;
                 }
+                env.put(ENV_CODEX_SANDBOX_MODE, effectiveSandboxMode);
+                env.put(ENV_CODEX_APPROVAL_POLICY, effectiveApprovalPolicy);
+                LOG.info("[Codex] Effective permission params: provider=codex, mode=" + normalizedPermissionMode +
+                        ", cwd=" + cwd + ", sandbox=" + env.get(ENV_CODEX_SANDBOX_MODE) +
+                        ", approvalPolicy=" + env.get(ENV_CODEX_APPROVAL_POLICY));
+                LOG.info("[Codex] Permission env override: SANDBOX_MODE=" +
+                         env.get(ENV_CODEX_SANDBOX_MODE) + ", APPROVAL_POLICY=" +
+                         env.get(ENV_CODEX_APPROVAL_POLICY) + " (from permissionMode=" +
+                         normalizedPermissionMode + ")");
 
                 pb.redirectErrorStream(true);
                 envConfigurator.updateProcessEnvironment(pb, node);
 
                 // Configure Codex-specific env vars from ~/.codex/config.toml
                 envConfigurator.configureCodexEnv(env);
+                // 再次强制回写权限变量，确保不会被后续注入逻辑覆盖。
+                env.put(ENV_CODEX_SANDBOX_MODE, effectiveSandboxMode);
+                env.put(ENV_CODEX_APPROVAL_POLICY, effectiveApprovalPolicy);
+                env.remove(ENV_CODEX_SANDBOX);
+                env.remove(ENV_CODEX_CI);
+                env.remove(ENV_CODEX_SANDBOX_NETWORK_DISABLED);
+                LOG.info("[Codex] Final Node permission env snapshot: CODEX_SANDBOX_MODE=" +
+                        env.get(ENV_CODEX_SANDBOX_MODE) + ", CODEX_APPROVAL_POLICY=" +
+                        env.get(ENV_CODEX_APPROVAL_POLICY) + ", CODEX_SANDBOX=" +
+                        env.get(ENV_CODEX_SANDBOX) + ", CODEX_CI=" + env.get(ENV_CODEX_CI) +
+                        ", CODEX_SANDBOX_NETWORK_DISABLED=" + env.get(ENV_CODEX_SANDBOX_NETWORK_DISABLED) +
+                        ", CLAUDE_SESSION_ID=" + env.get("CLAUDE_SESSION_ID") +
+                        ", CLAUDE_PERMISSION_DIR=" + env.get("CLAUDE_PERMISSION_DIR"));
 
                 LOG.info("Command: " + String.join(" ", command));
 
@@ -380,83 +435,7 @@ public class CodexSDKBridge extends BaseSDKBridge {
                                 LOG.warn("[Node.js ERROR] " + line);
                                 lastNodeError[0] = line;
                             }
-
-                            // Print debug logs
-                            if (line.contains("[DEBUG]")) {
-                                LOG.debug("[Codex] " + line);
-                            }
-
-                            // Parse messages
-                            if (line.startsWith("[MESSAGE_START]")) {
-                                callback.onMessage("message_start", "");
-                            } else if (line.startsWith("[MESSAGE_END]")) {
-                                callback.onMessage("message_end", "");
-                            } else if (line.startsWith("[THREAD_ID]")) {
-                                String receivedThreadId = line.substring("[THREAD_ID]".length()).trim();
-                                callback.onMessage("session_id", receivedThreadId);
-                            } else if (line.startsWith("[MESSAGE]")) {
-                                String jsonStr = line.substring("[MESSAGE]".length()).trim();
-                                try {
-                                    JsonObject msg = gson.fromJson(jsonStr, JsonObject.class);
-                                    if (msg != null) {
-                                        String msgType = msg.has("type") && !msg.get("type").isJsonNull()
-                                                ? msg.get("type").getAsString()
-                                                : "unknown";
-
-                                        if ("status".equals(msgType)) {
-                                            String status = "";
-                                            if (msg.has("message") && !msg.get("message").isJsonNull()) {
-                                                JsonElement statusEl = msg.get("message");
-                                                status = statusEl.isJsonPrimitive() ? statusEl.getAsString() : statusEl.toString();
-                                            }
-                                            if (status != null && !status.isEmpty()) {
-                                                callback.onMessage("status", status);
-                                            }
-                                            continue;
-                                        }
-
-                                        result.messages.add(msg);
-
-                                        if ("assistant".equals(msgType)) {
-                                            try {
-                                                String extracted = extractAssistantText(msg);
-                                                if (extracted != null && !extracted.isEmpty()) {
-                                                    assistantContent.append(extracted);
-                                                }
-                                            } catch (Exception ignored) {
-                                            }
-                                        }
-
-                                        callback.onMessage(msgType, jsonStr);
-                                    }
-                                } catch (Exception ignored) {
-                                }
-                            } else if (line.startsWith("[CONTENT_DELTA]")) {
-                                String delta = line.substring("[CONTENT_DELTA]".length()).trim();
-                                assistantContent.append(delta);
-                                callback.onMessage("content_delta", delta);
-                            } else if (line.startsWith("[CONTENT]")) {
-                                String content = line.substring("[CONTENT]".length()).trim();
-                                // Avoid duplicate
-                                if (!assistantContent.toString().contains(content)) {
-                                    assistantContent.append(content);
-                                }
-                                callback.onMessage("content", content);
-                            } else if (line.startsWith("[SEND_ERROR]")) {
-                                String jsonStr = line.substring("[SEND_ERROR]".length()).trim();
-                                String errorMessage = jsonStr;
-                                try {
-                                    JsonObject obj = gson.fromJson(jsonStr, JsonObject.class);
-                                    if (obj.has("error")) {
-                                        errorMessage = obj.get("error").getAsString();
-                                    }
-                                } catch (Exception ignored) {
-                                }
-                                hadSendError[0] = true;
-                                result.success = false;
-                                result.error = errorMessage;
-                                callback.onError(errorMessage);
-                            }
+                            processOutputLine(line, callback, result, assistantContent, hadSendError, lastNodeError);
                         }
                     }
 
@@ -826,7 +805,7 @@ public class CodexSDKBridge extends BaseSDKBridge {
      * Falls back to platform defaults when settings are unavailable or invalid.
      */
     private String resolveCodexSandboxMode(String cwd) {
-        String defaultMode = SANDBOX_MODE_DANGER_FULL_ACCESS;
+        String defaultMode = SANDBOX_MODE_WORKSPACE_WRITE;
 
         try {
             CodemossSettingsService settingsService = new CodemossSettingsService();

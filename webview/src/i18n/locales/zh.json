@@ -1291,8 +1291,8 @@
     },
     "acceptEdits": {
       "label": "自动编辑",
-      "tooltip": "Codex approval_policy=auto-edit：自动 apply_patch 写文件，命令仍需审批。",
-      "description": "自动处理文件创建/编辑，但运行命令前仍会询问。"
+      "tooltip": "Codex approval_policy=on-request：按需发起审批请求。",
+      "description": "平衡模式，保持正常编辑流程，同时在需要时进行审批。"
     },
     "bypassPermissions": {
       "label": "全自动",

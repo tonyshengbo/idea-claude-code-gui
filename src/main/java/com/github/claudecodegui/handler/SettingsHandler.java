@@ -1070,7 +1070,7 @@ public class SettingsHandler extends BaseMessageHandler {
             LOG.error("[SettingsHandler] Failed to get Codex sandbox mode: " + e.getMessage(), e);
             ApplicationManager.getApplication().invokeLater(() -> {
                 JsonObject response = new JsonObject();
-                response.addProperty("sandboxMode", "danger-full-access");
+                response.addProperty("sandboxMode", "workspace-write");
                 callJavaScript("window.updateCodexSandboxMode", escapeJs(gson.toJson(response)));
             });
         }

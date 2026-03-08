@@ -116,6 +116,13 @@ public abstract class BaseSDKBridge {
     }
 
     /**
+     * 设置当前 Bridge 的会话 ID（用于权限服务路由对齐）。
+     */
+    public void setSessionId(String sessionId) {
+        envConfigurator.setSessionId(sessionId);
+    }
+
+    /**
      * Interrupt a channel.
      */
     public void interruptChannel(String channelId) {

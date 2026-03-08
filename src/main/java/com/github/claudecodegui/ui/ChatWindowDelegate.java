@@ -200,13 +200,25 @@ public class ChatWindowDelegate {
      */
     public String setupPermissionService() {
         ClaudeSDKBridge claudeSDKBridge = host.getClaudeSDKBridge();
+        CodexSDKBridge codexSDKBridge = host.getCodexSDKBridge();
         Project project = host.getProject();
         String sessionId = claudeSDKBridge.getSessionId();
 
+        if ((sessionId == null || sessionId.isEmpty()) && codexSDKBridge != null) {
+            sessionId = codexSDKBridge.getSessionId();
+        }
+
         if (sessionId == null || sessionId.isEmpty()) {
-            LOG.warn("Failed to get session ID from bridge, generating fallback UUID");
+            LOG.warn("Failed to get session ID from bridges, generating fallback UUID");
             sessionId = java.util.UUID.randomUUID().toString();
         }
+
+        // 关键：对齐 Claude/Codex 子进程的 CLAUDE_SESSION_ID，确保 PermissionService 能命中同一批请求文件。
+        claudeSDKBridge.setSessionId(sessionId);
+        if (codexSDKBridge != null) {
+            codexSDKBridge.setSessionId(sessionId);
+        }
+        LOG.info("Unified bridge sessionId for PermissionService routing: " + sessionId);
 
         PermissionService permissionService = PermissionService.getInstance(project, sessionId);
         permissionService.start();
