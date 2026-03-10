@@ -1104,7 +1104,7 @@ public class SettingsHandler extends BaseMessageHandler {
         } catch (Exception e) {
             LOG.error("[SettingsHandler] Failed to set Codex sandbox mode: " + e.getMessage(), e);
             ApplicationManager.getApplication().invokeLater(() -> {
-                callJavaScript("window.showError", escapeJs("保存 Codex 沙箱模式失败: " + e.getMessage()));
+                callJavaScript("window.showError", escapeJs("Failed to save Codex sandbox mode: " + e.getMessage()));
             });
         }
     }

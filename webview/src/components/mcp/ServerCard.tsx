@@ -68,13 +68,13 @@ export function ServerCard({
           </div>
           <span className="server-name">{server.name || server.id}</span>
           {/* Connection status indicator */}
-                <span
-                  className="status-indicator"
-                  style={{ color: getStatusColor(server, effectiveStatus, isCodexMode) }}
-                  title={getStatusText(server, effectiveStatus, isCodexMode, t)}
-                >
-                  <span className={`codicon ${getStatusIcon(server, effectiveStatus, isCodexMode)}`}></span>
-                </span>
+          <span
+            className="status-indicator"
+            style={{ color: getStatusColor(server, effectiveStatus, isCodexMode) }}
+            title={getStatusText(server, effectiveStatus, isCodexMode, t)}
+          >
+            <span className={`codicon ${getStatusIcon(server, effectiveStatus, isCodexMode)}`}></span>
+          </span>
         </div>
         <div className="header-right-section" onClick={(e) => e.stopPropagation()}>
           {/* Edit button */}

@@ -42,6 +42,7 @@ public class CodexSDKBridge extends BaseSDKBridge {
     private static final String ENV_CODEX_SANDBOX = "CODEX_SANDBOX";
     private static final String ENV_CODEX_CI = "CODEX_CI";
     private static final String ENV_CODEX_SANDBOX_NETWORK_DISABLED = "CODEX_SANDBOX_NETWORK_DISABLED";
+    private static final long MCP_TOOLS_TIMEOUT_MS = 65_000;
 
     public CodexSDKBridge() {
         super(CodexSDKBridge.class);
@@ -530,7 +531,7 @@ public class CodexSDKBridge extends BaseSDKBridge {
                 });
                 readerThread.start();
 
-                long deadline = System.currentTimeMillis() + 65000;
+                long deadline = System.currentTimeMillis() + MCP_TOOLS_TIMEOUT_MS;
                 while (!found[0] && !readerDone[0] && System.currentTimeMillis() < deadline) {
                     Thread.sleep(100);
                 }
@@ -770,7 +771,11 @@ public class CodexSDKBridge extends BaseSDKBridge {
      * Falls back to platform defaults when settings are unavailable or invalid.
      */
     private String resolveCodexSandboxMode(String cwd) {
-        String defaultMode = SANDBOX_MODE_DANGER_FULL_ACCESS;
+        // Default to workspace-write (safer) on non-Windows; Windows sandbox is
+        // experimental so danger-full-access is used there as a platform fallback.
+        String defaultMode = PlatformUtils.isWindows()
+                ? SANDBOX_MODE_DANGER_FULL_ACCESS
+                : SANDBOX_MODE_WORKSPACE_WRITE;
 
         try {
             CodemossSettingsService settingsService = new CodemossSettingsService();

@@ -18,7 +18,7 @@ import { loadCodexSdk, isCodexSdkAvailable } from '../../utils/sdk-loader.js';
 import { CodexPermissionMapper } from '../../utils/permission-mapper.js';
 import { randomUUID } from 'crypto';
 import { existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve, sep } from 'path';
 import { getRealHomeDir } from '../../utils/path-utils.js';
 import { getMcpServerTools as getMcpServerToolsImpl } from '../claude/mcp-status/index.js';
 import { requestPermissionFromJava } from '../../permission-handler.js';
@@ -637,10 +637,10 @@ export async function sendMessage(
     // (for example CODEX_CI=1) affecting CLI behavior.
     const { cliEnv, removedKeys } = buildCodexCliEnvironment(process.env);
     codexOptions.env = cliEnv;
-    console.log('[PERM_DEBUG] Codex CLI env isolation:', {
+    logDebug('PERM_DEBUG', 'Codex CLI env isolation:', JSON.stringify({
       removedKeys,
       removedCount: removedKeys.length
-    });
+    }));
 
     const codex = new Codex(codexOptions);
 
@@ -650,23 +650,23 @@ export async function sendMessage(
 
     const permissionConfig = CodexPermissionMapper.toProvider(normalizedPermissionMode);
 
-    console.log('[PERM_DEBUG] Codex permission config:', permissionConfig);
-    console.log('[PERM_DEBUG] Raw env permission overrides:', {
+    logDebug('PERM_DEBUG', 'Codex permission config:', JSON.stringify(permissionConfig));
+    logDebug('PERM_DEBUG', 'Raw env permission overrides:', JSON.stringify({
       CODEX_SANDBOX_MODE: process.env.CODEX_SANDBOX_MODE || '',
       CODEX_APPROVAL_POLICY: process.env.CODEX_APPROVAL_POLICY || ''
-    });
+    }));
 
     // Allow Java side to force sandbox mapping override via env vars so Node
     // side mapping does not fall back to workspace-write again.
     const sandboxOverride = resolveSandboxModeOverride();
     if (sandboxOverride) {
       permissionConfig.sandbox = sandboxOverride;
-      console.log('[PERM_DEBUG] Sandbox override from env CODEX_SANDBOX_MODE:', sandboxOverride);
+      logDebug('PERM_DEBUG', 'Sandbox override from env CODEX_SANDBOX_MODE:', sandboxOverride);
     }
     const approvalPolicyOverride = resolveApprovalPolicyOverride();
     if (approvalPolicyOverride) {
       permissionConfig.approvalPolicy = approvalPolicyOverride;
-      console.log('[PERM_DEBUG] Approval override from env CODEX_APPROVAL_POLICY:', approvalPolicyOverride);
+      logDebug('PERM_DEBUG', 'Approval override from env CODEX_APPROVAL_POLICY:', approvalPolicyOverride);
     }
 
     // ============================================================
@@ -716,13 +716,13 @@ export async function sendMessage(
     }
 
     // Final configuration log for debugging
-    console.log('[PERM_DEBUG] Final Codex threadOptions:', {
+    logDebug('PERM_DEBUG', 'Final Codex threadOptions:', JSON.stringify({
       permissionMode: normalizedPermissionMode,
       workingDirectory: threadOptions.workingDirectory,
       sandboxMode: threadOptions.sandboxMode,
       approvalPolicy: threadOptions.approvalPolicy,
       skipGitRepoCheck: threadOptions.skipGitRepoCheck
-    });
+    }));
 
     // ============================================================
     // 4. Create or Resume Thread
@@ -872,13 +872,22 @@ export async function sendMessage(
       if (typeof filePath !== 'string' || !filePath.trim()) {
         return '';
       }
-      if (filePath.startsWith('/')) {
-        return filePath;
-      }
+      // Resolve to absolute path against the working directory
+      const resolved = filePath.startsWith('/')
+        ? resolve(filePath)
+        : (cwd && typeof cwd === 'string' && cwd.trim())
+          ? resolve(cwd, filePath)
+          : filePath;
+      // Guard against path traversal: resolved path must stay within cwd
       if (cwd && typeof cwd === 'string' && cwd.trim()) {
-        return join(cwd, filePath);
+        const normalizedCwd = resolve(cwd);
+        const normalizedResolved = resolve(resolved);
+        if (normalizedResolved !== normalizedCwd && !normalizedResolved.startsWith(normalizedCwd + sep)) {
+          logWarn('PERM_DEBUG', `Path traversal blocked: ${filePath} resolved to ${normalizedResolved} (cwd=${normalizedCwd})`);
+          return '';
+        }
       }
-      return filePath;
+      return resolved;
     };
 
     const ensureSessionFilePath = () => {
@@ -952,7 +961,7 @@ export async function sendMessage(
         : [];
 
       runtimePolicyLogged = true;
-      console.log('[PERM_DEBUG] Runtime turn_context policy:', JSON.stringify({
+      logDebug('PERM_DEBUG', 'Runtime turn_context policy:', JSON.stringify({
         expectedApprovalPolicy: threadOptions.approvalPolicy || '',
         expectedSandboxMode: threadOptions.sandboxMode || '',
         actualApprovalPolicy: actualApproval,
@@ -1448,7 +1457,7 @@ export async function sendMessage(
       emitDeniedCommandToolResultOnce(toolUseId, 'Command denied by user and turn aborted');
       emitMessage({
         type: 'status',
-        message: '审批拒绝：已发出中断请求（命令可能已启动）'
+        message: 'Approval denied: abort requested (command may have already started)'
       });
 
       commandApprovalAbortRequested = true;
@@ -1739,8 +1748,8 @@ export async function sendMessage(
                 emitMessage({
                   type: 'status',
                   message: failedRollbackCount > 0
-                    ? `审批拒绝：已尝试回滚 ${deniedCallIds.size} 处修改，其中 ${failedRollbackCount} 处回滚失败`
-                    : `审批拒绝：已回滚 ${deniedCallIds.size} 处修改`
+                    ? `Approval denied: attempted to rollback ${deniedCallIds.size} change(s), ${failedRollbackCount} rollback(s) failed`
+                    : `Approval denied: rolled back ${deniedCallIds.size} change(s)`
                 });
               }
             }
@@ -2008,6 +2017,7 @@ export async function getMcpServerTools(serverId, rawServerConfig) {
     };
 
     const resultJson = JSON.stringify(result);
+    // Prefixed line is consumed by CodexSDKBridge Java reader; plain line is the fallback parser.
     console.log('[MCP_SERVER_TOOLS]' + resultJson);
     console.log(resultJson);
   } catch (error) {
